@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ccmigrate"
+version = "0.1.0"
+description = "Sync local agent chat history across Claude Code, Codex, and opencode into a portable archive."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "ccmigrate contributors" }]
+dependencies = []
+
+[project.scripts]
+ccmigrate = "ccmigrate.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
