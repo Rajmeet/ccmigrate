@@ -72,6 +72,7 @@ codex "$(cat .ccmigrate/handoffs/<timestamp>/codex-prompt.txt)"
 ```
 
 Prefer `handoff` over native migration for very large sessions. Native migration preserves more raw history, but it can make Codex unusable when the transcript is huge.
+For multi-million-token Claude chats, never try to resume the whole migrated session in Codex. Generate a handoff, start fresh, and search `search-shards/` for old details as needed.
 
 ## Native Claude Code to Codex Migration
 

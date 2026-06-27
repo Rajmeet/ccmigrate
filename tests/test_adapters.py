@@ -151,7 +151,9 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(manifest["conversation_count"], 1)
             self.assertTrue((out / "HANDOFF.md").exists())
             self.assertTrue((out / "codex-prompt.txt").exists())
+            self.assertTrue((out / "search-shards" / "INDEX.md").exists())
             self.assertIn("Next Steps", (out / "HANDOFF.md").read_text(encoding="utf-8"))
+            self.assertIn("search-shards", (out / "codex-prompt.txt").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

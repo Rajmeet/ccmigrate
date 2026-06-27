@@ -24,6 +24,8 @@ def write_handoff(
     max_chars: int = 24000,
     include_dump: bool = True,
     make_zip: bool = False,
+    include_shards: bool = True,
+    shard_chars: int = 50000,
     note: str | None = None,
 ) -> dict[str, Any]:
     out.mkdir(parents=True, exist_ok=True)
@@ -50,6 +52,9 @@ def write_handoff(
         dump_manifest = write_thread_dump(selected, dump_dir, make_zip=make_zip, note=note)
         manifest["full_dump"] = dump_manifest.get("dump", {})
         manifest["full_archive"] = dump_manifest.get("archive")
+    if include_shards:
+        shard_manifest = write_search_shards(selected, out / "search-shards", shard_chars=shard_chars)
+        manifest["search_shards"] = shard_manifest
     write_json(out / "manifest.json", manifest)
     return manifest
 
@@ -57,7 +62,8 @@ def write_handoff(
 def render_codex_prompt(handoff_path: Path) -> str:
     return (
         f"Read {handoff_path} first. Use it as the compact continuation context for this task. "
-        "Do not load the full raw transcript unless you need a specific detail. "
+        "Do not resume or load the full raw transcript. If you need a specific older detail, "
+        "search the sibling search-shards directory with rg and open only the matching shard. "
         "Then continue from the Next Steps section."
     )
 
@@ -128,7 +134,9 @@ def render_handoff(
             "- Treat this file as the working memory, not as a complete transcript.",
             "- Start by checking current repository state with `git status --short --branch`.",
             "- Read project files directly instead of trusting stale transcript claims.",
-            "- Only inspect `full-dump/threads.md` for specific missing details.",
+            "- Do not load the full raw transcript into context.",
+            "- For older transcript details, search `search-shards/` with `rg` and open only matching shard files.",
+            "- Only inspect `full-dump/threads.md` as a last resort for specific missing details.",
             "- Continue from the most recent user direction above.",
             "",
         ]
@@ -192,3 +200,95 @@ def summarize_tools(tool_calls: list[ToolCall]) -> list[str]:
             lines.append(f"- `{call.name}` `{call.created_at or 'unknown'}` {str(subject)[:180]}")
     return lines
 
+
+def write_search_shards(
+    conversations: list[Conversation],
+    out: Path,
+    *,
+    shard_chars: int,
+) -> dict[str, Any]:
+    out.mkdir(parents=True, exist_ok=True)
+    index_lines = [
+        "# Search Shards",
+        "",
+        "These files split the large source transcript into grep-friendly pieces.",
+        "Do not load all shards into an agent context. Search first, then open only relevant files.",
+        "",
+        "Example:",
+        "",
+        "```bash",
+        "rg -n \"scorecard|fallback|endpoint\" search-shards",
+        "```",
+        "",
+    ]
+    files: list[dict[str, Any]] = []
+    for conv in conversations:
+        chunks = list(conversation_chunks(conv, shard_chars=max(1000, shard_chars)))
+        for idx, chunk in enumerate(chunks, start=1):
+            path = out / f"{conv.provider}-{conv.id}-part-{idx:04d}.md"
+            path.write_text(chunk, encoding="utf-8")
+            files.append({"path": str(path), "chars": len(chunk), "conversation_id": conv.id, "part": idx})
+            index_lines.append(f"- `{path.name}`: {len(chunk)} chars")
+    (out / "INDEX.md").write_text("\n".join(index_lines).rstrip() + "\n", encoding="utf-8")
+    return {
+        "directory": str(out),
+        "index": str(out / "INDEX.md"),
+        "file_count": len(files),
+        "files": files,
+    }
+
+
+def conversation_chunks(conv: Conversation, *, shard_chars: int):
+    header = "\n".join(
+        [
+            f"# Transcript shard for {conv.provider}:{conv.id}",
+            "",
+            f"- Project: `{conv.project or 'unknown'}`",
+            f"- Title: `{conv.title or conv.id}`",
+            f"- Updated: `{conv.updated_at or 'unknown'}`",
+            "",
+        ]
+    )
+    current = [header]
+    current_len = len(header)
+
+    def flush():
+        nonlocal current, current_len
+        if len(current) > 1:
+            text = "\n".join(current).rstrip() + "\n"
+            current = [header]
+            current_len = len(header)
+            return text
+        return None
+
+    for i, message in enumerate(conv.messages, start=1):
+        block = "\n".join(
+            [
+                f"## Message {i}: {message.role} `{message.created_at or 'unknown'}`",
+                "",
+                message.content.strip(),
+                "",
+            ]
+        )
+        if current_len + len(block) > shard_chars:
+            flushed = flush()
+            if flushed:
+                yield flushed
+        current.append(block)
+        current_len += len(block)
+
+    if conv.tool_calls:
+        block_lines = ["# Tool Calls", ""]
+        for i, call in enumerate(conv.tool_calls, start=1):
+            subject = call.input.get("command") or call.input.get("file_path") or call.input.get("path") or ""
+            block_lines.append(f"- {i}. `{call.name}` `{call.created_at or 'unknown'}` {str(subject)[:300]}")
+        block = "\n".join(block_lines) + "\n"
+        if current_len + len(block) > shard_chars:
+            flushed = flush()
+            if flushed:
+                yield flushed
+        current.append(block)
+
+    flushed = flush()
+    if flushed:
+        yield flushed

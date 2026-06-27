@@ -108,6 +108,8 @@ For safety, `dump` refuses to run unless you pass a selector (`--project`, `--si
 
 Creates a compact continuation packet for a fresh agent session. Use this when a raw migrated thread is too large for Codex or another agent to resume reliably.
 
+For very large histories, such as multi-million-token Claude Code chats, native migration is the wrong interface. Codex may create the session file but fail to render or run it. `handoff` keeps the working context small and writes `search-shards/` for targeted lookup.
+
 ```bash
 ccmigrate handoff --project /Users/me/project --limit 1
 ccmigrate handoff --id <conversation-id> --project /Users/me/project --recent-messages 30
@@ -120,6 +122,7 @@ This writes:
   HANDOFF.md
   codex-prompt.txt
   manifest.json
+  search-shards/
   full-dump/
 ```
 
@@ -131,6 +134,7 @@ codex "$(cat .ccmigrate/handoffs/<timestamp>/codex-prompt.txt)"
 ```
 
 The new agent reads `HANDOFF.md` first and only opens the full dump for specific missing details.
+For older details, prefer `rg -n "term" .ccmigrate/handoffs/<timestamp>/search-shards` and open only the matching shard.
 
 ## Output
 

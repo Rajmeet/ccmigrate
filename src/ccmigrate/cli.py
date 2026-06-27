@@ -73,6 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
             command_parser.add_argument("--recent-messages", type=int, default=24, help="Number of recent messages to include.")
             command_parser.add_argument("--max-chars", type=int, default=24000, help="Approximate character budget for HANDOFF.md.")
             command_parser.add_argument("--no-dump", action="store_true", help="Do not include the full dump next to the handoff.")
+            command_parser.add_argument("--no-shards", action="store_true", help="Do not split the transcript into searchable shard files.")
+            command_parser.add_argument("--shard-chars", type=int, default=50000, help="Approximate character budget per searchable shard.")
             command_parser.add_argument("--zip", action="store_true", help="Zip the optional full dump.")
             command_parser.add_argument("--no-redact", action="store_true", help="Disable default secret redaction.")
             command_parser.add_argument("--note", help="Optional note to include in the handoff.")
@@ -244,6 +246,8 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         max_chars=args.max_chars,
         include_dump=not args.no_dump,
         make_zip=args.zip,
+        include_shards=not args.no_shards,
+        shard_chars=args.shard_chars,
         note=args.note,
     )
     print(
@@ -254,6 +258,9 @@ def cmd_handoff(args: argparse.Namespace) -> int:
         print("Redaction: enabled. Use --no-redact only for trusted/private local continuation.")
     print(f"handoff: {manifest['handoff']}")
     print(f"prompt: {manifest['codex_prompt']}")
+    shards = manifest.get("search_shards", {})
+    if shards:
+        print(f"search_shards: {shards.get('directory')} ({shards.get('file_count')} files)")
     print()
     print("Start fresh Codex with:")
     print(f"  cd {conversations[0].project or Path.cwd()}")
