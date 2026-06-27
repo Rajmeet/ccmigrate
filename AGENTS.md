@@ -52,6 +52,27 @@ Dump behavior:
 - Inspect `threads.md` before sending the zip to someone.
 - Delete temporary dumps after testing because they contain chat-derived content.
 
+Create a compact handoff when a native migrated session is too large for Codex:
+
+```bash
+PYTHONPATH=src python3 -m ccmigrate handoff --project /path-or-name --limit 1
+```
+
+For an exact oversized thread:
+
+```bash
+PYTHONPATH=src python3 -m ccmigrate handoff --id <conversation-id> --project /path/to/project --recent-messages 30
+```
+
+Then start a fresh Codex session with the generated prompt:
+
+```bash
+cd /path/to/project
+codex "$(cat .ccmigrate/handoffs/<timestamp>/codex-prompt.txt)"
+```
+
+Prefer `handoff` over native migration for very large sessions. Native migration preserves more raw history, but it can make Codex unusable when the transcript is huge.
+
 ## Native Claude Code to Codex Migration
 
 Use native migration only when the user explicitly asks to run a Claude/Codex conversation in Codex.

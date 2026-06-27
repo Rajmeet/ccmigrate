@@ -34,6 +34,7 @@ ccmigrate list
 ccmigrate sync
 ccmigrate export
 ccmigrate dump --project my-app --zip
+ccmigrate handoff --project my-app
 ```
 
 Generated files are written to `.ccmigrate/` by default.
@@ -49,6 +50,7 @@ ccmigrate sync --dry-run --redact
 ccmigrate export --format markdown
 ccmigrate export --format provider-memory
 ccmigrate dump --project my-app --limit 1 --zip
+ccmigrate handoff --project my-app --limit 1
 ```
 
 ### `doctor`
@@ -101,6 +103,34 @@ ccmigrate dump --project my-app --since 2026-06-01 --limit 5 --note "handoff con
 ```
 
 For safety, `dump` refuses to run unless you pass a selector (`--project`, `--since`, `--id`) or explicitly pass `--all`. Use `--no-redact` only for trusted private sharing.
+
+### `handoff`
+
+Creates a compact continuation packet for a fresh agent session. Use this when a raw migrated thread is too large for Codex or another agent to resume reliably.
+
+```bash
+ccmigrate handoff --project /Users/me/project --limit 1
+ccmigrate handoff --id <conversation-id> --project /Users/me/project --recent-messages 30
+```
+
+This writes:
+
+```text
+<project>/.ccmigrate/handoffs/<timestamp>/
+  HANDOFF.md
+  codex-prompt.txt
+  manifest.json
+  full-dump/
+```
+
+Start a fresh Codex session with:
+
+```bash
+cd /Users/me/project
+codex "$(cat .ccmigrate/handoffs/<timestamp>/codex-prompt.txt)"
+```
+
+The new agent reads `HANDOFF.md` first and only opens the full dump for specific missing details.
 
 ## Output
 

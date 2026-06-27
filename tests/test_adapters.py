@@ -9,6 +9,7 @@ from ccmigrate.adapters import ClaudeAdapter, CodexAdapter, OpencodeAdapter
 from ccmigrate.archive import load_archive, write_archive
 from ccmigrate.dump import write_thread_dump
 from ccmigrate.filters import filter_conversations
+from ccmigrate.handoff import write_handoff
 from ccmigrate.redaction import redact_conversations
 
 
@@ -130,6 +131,27 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue((out / "threads.md").exists())
             self.assertTrue((out / "threads.jsonl").exists())
             self.assertTrue((out / "conversations.jsonl").exists())
+
+    def test_handoff_writes_compact_context_and_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / ".codex" / "sessions"
+            root.mkdir(parents=True)
+            path = root / "rollout.jsonl"
+            rows = [
+                {"type": "session_meta", "timestamp": "2026-01-01T00:00:00Z", "payload": {"id": "c1", "cwd": "/repo/demo"}},
+                {"type": "response_item", "timestamp": "2026-01-01T00:00:01Z", "payload": {"type": "user_message", "content": "continue this work"}},
+                {"type": "response_item", "timestamp": "2026-01-01T00:00:02Z", "payload": {"type": "message", "role": "assistant", "content": [{"text": "next step is run tests"}]}},
+            ]
+            path.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+            conversations = CodexAdapter(root).conversations()
+            out = Path(tmp) / "handoff"
+            manifest = write_handoff(conversations, out, include_dump=False)
+
+            self.assertEqual(manifest["conversation_count"], 1)
+            self.assertTrue((out / "HANDOFF.md").exists())
+            self.assertTrue((out / "codex-prompt.txt").exists())
+            self.assertIn("Next Steps", (out / "HANDOFF.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

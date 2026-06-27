@@ -12,6 +12,7 @@ from ccmigrate.archive import load_archive, write_archive
 from ccmigrate.dump import default_dump_dir, write_thread_dump
 from ccmigrate.exporters import export_all, export_markdown, export_transcript_jsonl, provider_memory_files
 from ccmigrate.filters import filter_conversations
+from ccmigrate.handoff import default_handoff_dir, write_handoff
 from ccmigrate.models import Conversation
 from ccmigrate.redaction import redact_conversations
 
@@ -40,7 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"ccmigrate {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    for command in ("doctor", "scan", "list", "sync", "dump"):
+    for command in ("doctor", "scan", "list", "sync", "dump", "handoff"):
         command_parser = sub.add_parser(command)
         add_common_args(command_parser)
         if command == "scan":
@@ -65,6 +66,17 @@ def build_parser() -> argparse.ArgumentParser:
             command_parser.add_argument("--max-message-chars", type=int, default=12000, help="Markdown truncation limit per message.")
             command_parser.add_argument("--note", help="Optional note to include in the dump README.")
             command_parser.set_defaults(func=cmd_dump)
+        elif command == "handoff":
+            command_parser.add_argument("--id", action="append", dest="conversation_ids", help="Conversation id to hand off. Repeatable; first match is used.")
+            command_parser.add_argument("--limit", type=int, default=1, help="Maximum conversations to inspect after filtering. Default: 1.")
+            command_parser.add_argument("--out", type=Path, default=None, help="Output directory. Default: <project>/.ccmigrate/handoffs/<timestamp> when --project is a path.")
+            command_parser.add_argument("--recent-messages", type=int, default=24, help="Number of recent messages to include.")
+            command_parser.add_argument("--max-chars", type=int, default=24000, help="Approximate character budget for HANDOFF.md.")
+            command_parser.add_argument("--no-dump", action="store_true", help="Do not include the full dump next to the handoff.")
+            command_parser.add_argument("--zip", action="store_true", help="Zip the optional full dump.")
+            command_parser.add_argument("--no-redact", action="store_true", help="Disable default secret redaction.")
+            command_parser.add_argument("--note", help="Optional note to include in the handoff.")
+            command_parser.set_defaults(func=cmd_handoff)
         else:
             command_parser.set_defaults(func=cmd_doctor)
 
@@ -203,6 +215,49 @@ def cmd_dump(args: argparse.Namespace) -> int:
         print(f"zip: {zip_path}")
     print(f"markdown: {out / 'threads.md'}")
     print(f"jsonl: {out / 'threads.jsonl'}")
+    return 0
+
+
+def cmd_handoff(args: argparse.Namespace) -> int:
+    if not (args.project or args.since or args.conversation_ids):
+        print("Refusing to create a handoff without --project, --since, or --id.", file=sys.stderr)
+        return 2
+
+    conversations = load_provider_conversations(args, limit=None if args.conversation_ids else args.limit)
+    if args.conversation_ids:
+        wanted = set(args.conversation_ids)
+        conversations = [conv for conv in conversations if conv.id in wanted or (conv.metadata.get("session_id") in wanted)]
+    if not conversations:
+        print("No conversations matched the handoff selectors.", file=sys.stderr)
+        return 1
+    conversations = conversations[:1]
+
+    redacted = not args.no_redact
+    if redacted:
+        conversations = redact_conversations(conversations)
+
+    out = args.out or default_handoff_dir(project=args.project if args.project and Path(args.project).is_absolute() else conversations[0].project)
+    manifest = write_handoff(
+        conversations,
+        out,
+        recent_messages=args.recent_messages,
+        max_chars=args.max_chars,
+        include_dump=not args.no_dump,
+        make_zip=args.zip,
+        note=args.note,
+    )
+    print(
+        f"Wrote compact handoff for 1 conversation, "
+        f"{manifest['message_count']} messages, and {manifest['tool_call_count']} tool calls to {out}"
+    )
+    if redacted:
+        print("Redaction: enabled. Use --no-redact only for trusted/private local continuation.")
+    print(f"handoff: {manifest['handoff']}")
+    print(f"prompt: {manifest['codex_prompt']}")
+    print()
+    print("Start fresh Codex with:")
+    print(f"  cd {conversations[0].project or Path.cwd()}")
+    print(f"  codex \"$(cat {manifest['codex_prompt']})\"")
     return 0
 
 
